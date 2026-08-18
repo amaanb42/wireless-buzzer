@@ -1,3 +1,5 @@
+AI DISCLAIMER: Every file in this project has been written mostly by codex
+
 # Wireless Buzzer
 
 Wireless Buzzer is a two-unit wireless buzzer system built with ESP32 boards and
@@ -78,7 +80,7 @@ arduino-cli board list
 
 ## Planned mobile-app support
 
-The next major feature is allowing a phone to trigger the buzzer. One ESP32
+The next major feature is allowing a phone to trigger the buzzer. The bedroom ESP32
 will act as a small web server, exposing a simple local web interface or HTTP
 endpoint for a mobile device on the same Wi-Fi network. When the endpoint is
 triggered, that ESP32 will send the existing `RING` command over the HC-12 link,
