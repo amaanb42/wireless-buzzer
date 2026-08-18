@@ -1,0 +1,15 @@
+# Arduino CLI and common embedded build output
+build/
+.arduino15/
+.pio/
+*.bin
+*.elf
+*.hex
+*.map
+
+# Local editor and operating-system files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
