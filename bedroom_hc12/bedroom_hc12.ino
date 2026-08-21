@@ -23,9 +23,13 @@ constexpr uint8_t BUTTON_PIN = 25;
 constexpr uint8_t HC12_RX = 16;  // Connect to HC-12 TXD.
 constexpr uint8_t HC12_TX = 17;  // Connect to HC-12 RXD.
 constexpr uint8_t BLUE_LED_PIN = 2;
-constexpr uint16_t TONE_FREQUENCY_HZ = 800;
-constexpr uint8_t BUZZER_DUTY_PERCENT = 1;
+// A lower, wider pulse is noticeably louder without the sharp 800 Hz tone.
+constexpr uint16_t TONE_FREQUENCY_HZ = 350;
+constexpr uint8_t BUZZER_DUTY_PERCENT = 8;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
+constexpr uint32_t BEEP_DURATION_MS = 250;
+constexpr uint32_t BEEP_START_INTERVAL_MS = 1000;
+constexpr uint32_t PATTERN_REPEAT_PAUSE_MS = 3000;
 
 HardwareSerial HC12(2);
 
@@ -34,10 +38,14 @@ bool buttonStableState = HIGH;
 uint32_t buttonRawChangedAtMs = 0;
 bool ringing = false;
 bool acknowledgementArmed = false;
+bool buzzerToneActive = false;
+uint8_t completedBeeps = 0;
+uint32_t buzzerTransitionAtMs = 0;
 
 bool buttonWasPressed();
 void receiveMessages();
 void playQuietToneCycle(uint16_t frequencyHz, uint8_t dutyPercent);
+void updateBuzzerPattern();
 void setRinging(bool active);
 
 void setup() {
@@ -82,7 +90,7 @@ void loop() {
   receiveMessages();
 
   if (ringing) {
-    playQuietToneCycle(TONE_FREQUENCY_HZ, BUZZER_DUTY_PERCENT);
+    updateBuzzerPattern();
   }
 }
 
@@ -147,8 +155,39 @@ void receiveMessages() {
 void setRinging(bool active) {
   ringing = active;
   digitalWrite(BLUE_LED_PIN, active ? HIGH : LOW);
-  if (!active) {
+
+  if (active) {
+    // Start the first of three beeps immediately.
+    buzzerToneActive = true;
+    completedBeeps = 0;
+    buzzerTransitionAtMs = millis() + BEEP_DURATION_MS;
+  } else {
+    buzzerToneActive = false;
     digitalWrite(BUZZER_PIN, HIGH);
+  }
+}
+
+void updateBuzzerPattern() {
+  const uint32_t nowMs = millis();
+
+  if (buzzerToneActive) {
+    // One short cycle per pass keeps radio and button handling responsive.
+    playQuietToneCycle(TONE_FREQUENCY_HZ, BUZZER_DUTY_PERCENT);
+
+    if (static_cast<int32_t>(nowMs - buzzerTransitionAtMs) >= 0) {
+      buzzerToneActive = false;
+      digitalWrite(BUZZER_PIN, HIGH);
+      ++completedBeeps;
+      buzzerTransitionAtMs = nowMs +
+          (completedBeeps == 3 ? PATTERN_REPEAT_PAUSE_MS
+                               : BEEP_START_INTERVAL_MS - BEEP_DURATION_MS);
+    }
+  } else if (static_cast<int32_t>(nowMs - buzzerTransitionAtMs) >= 0) {
+    if (completedBeeps == 3) {
+      completedBeeps = 0;
+    }
+    buzzerToneActive = true;
+    buzzerTransitionAtMs = nowMs + BEEP_DURATION_MS;
   }
 }
 
