@@ -94,9 +94,14 @@ curl -X POST http://192.168.50.50/api/ring
 curl -X POST http://192.168.50.50/api/stop
 ```
 
-Each successful response is either `{"ringing":true}` or
-`{"ringing":false}`. A future Android app can poll `/api/status` about every
-500 ms to notice kitchen, bedroom-button, and web-request state changes.
+Each successful response contains the current state and the source of its last
+change, for example `{"ringing":false,"source":"bedroom_button"}`. Source is
+one of `startup`, `api`, `bedroom_button`, or `hc12`. Clients can poll
+`/api/status` about every 500 ms to notice kitchen, bedroom-button, and
+web-request state changes.
+
+The bedroom unit disables ESP32 Wi-Fi power saving to favor consistent local
+HTTP response times over the modest additional power use.
 
 ## Compile and upload
 

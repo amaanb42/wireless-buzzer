@@ -54,6 +54,15 @@ uint8_t completedBeeps = 0;
 uint32_t buzzerTransitionAtMs = 0;
 bool webServerRunning = false;
 
+enum class ChangeSource : uint8_t {
+  STARTUP,
+  API,
+  BEDROOM_BUTTON,
+  HC12,
+};
+
+ChangeSource lastChangeSource = ChangeSource::STARTUP;
+
 bool buttonWasPressed();
 void receiveMessages();
 void setBuzzerTone(bool active);
@@ -61,7 +70,8 @@ void updateBuzzerPattern();
 void configureWebServer();
 void updateWiFi();
 void sendRingingStatus();
-void setRinging(bool active);
+const char* changeSourceName(ChangeSource source);
+void setRinging(bool active, ChangeSource source);
 
 void setup() {
   HC12.begin(9600, SERIAL_8N1, HC12_RX, HC12_TX);
@@ -84,6 +94,7 @@ void setup() {
 
   configureWebServer();
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
@@ -101,7 +112,7 @@ void loop() {
     }
 
     if (buttonPressed && acknowledgementArmed) {
-      setRinging(false);
+      setRinging(false, ChangeSource::BEDROOM_BUTTON);
       acknowledgementArmed = false;
       HC12.println("STOP");
     }
@@ -144,13 +155,13 @@ void receiveMessages() {
 
       if (strcmp(message, "RING") == 0) {
         if (!ringing) {
-          setRinging(true);
+          setRinging(true, ChangeSource::HC12);
           acknowledgementArmed =
               buttonRawState == HIGH && buttonStableState == HIGH;
         }
       } else if (strcmp(message, "STOP") == 0) {
         if (ringing) {
-          setRinging(false);
+          setRinging(false, ChangeSource::HC12);
           acknowledgementArmed = false;
         }
       }
@@ -167,8 +178,13 @@ void receiveMessages() {
   }
 }
 
-void setRinging(bool active) {
+void setRinging(bool active, ChangeSource source) {
+  if (ringing == active) {
+    return;
+  }
+
   ringing = active;
+  lastChangeSource = source;
   digitalWrite(BLUE_LED_PIN, active ? HIGH : LOW);
 
   if (active) {
@@ -190,7 +206,7 @@ void configureWebServer() {
 
   webServer.on("/api/ring", HTTP_POST, []() {
     if (!ringing) {
-      setRinging(true);
+      setRinging(true, ChangeSource::API);
       acknowledgementArmed =
           buttonRawState == HIGH && buttonStableState == HIGH;
     }
@@ -199,7 +215,7 @@ void configureWebServer() {
   });
 
   webServer.on("/api/stop", HTTP_POST, []() {
-    setRinging(false);
+    setRinging(false, ChangeSource::API);
     acknowledgementArmed = false;
     HC12.println("STOP");
     sendRingingStatus();
@@ -230,9 +246,26 @@ void updateWiFi() {
 }
 
 void sendRingingStatus() {
+  char responseBody[80];
+  snprintf(responseBody, sizeof(responseBody),
+           "{\"ringing\":%s,\"source\":\"%s\"}",
+           ringing ? "true" : "false", changeSourceName(lastChangeSource));
   webServer.sendHeader("Cache-Control", "no-store");
-  webServer.send(200, "application/json",
-                 ringing ? "{\"ringing\":true}" : "{\"ringing\":false}");
+  webServer.send(200, "application/json", responseBody);
+}
+
+const char* changeSourceName(ChangeSource source) {
+  switch (source) {
+    case ChangeSource::API:
+      return "api";
+    case ChangeSource::BEDROOM_BUTTON:
+      return "bedroom_button";
+    case ChangeSource::HC12:
+      return "hc12";
+    case ChangeSource::STARTUP:
+    default:
+      return "startup";
+  }
 }
 
 void updateBuzzerPattern() {
