@@ -36,7 +36,6 @@ constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
 constexpr uint32_t BEEP_DURATION_MS = 250;
 constexpr uint32_t BEEP_START_INTERVAL_MS = 1000;
 constexpr uint32_t PATTERN_REPEAT_PAUSE_MS = 3000;
-constexpr uint32_t WIFI_RETRY_INTERVAL_MS = 10000;
 constexpr char MDNS_HOSTNAME[] = "bedroom-buzzer";
 
 HardwareSerial HC12(2);
@@ -50,7 +49,6 @@ bool acknowledgementArmed = false;
 bool buzzerToneActive = false;
 uint8_t completedBeeps = 0;
 uint32_t buzzerTransitionAtMs = 0;
-uint32_t lastWifiAttemptAtMs = 0;
 bool webServerRunning = false;
 bool mdnsRunning = false;
 
@@ -84,7 +82,6 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  lastWifiAttemptAtMs = millis();
 
   delay(500);
   Serial.println("Bedroom receiver ready; waiting for RING.");
@@ -255,12 +252,9 @@ void updateWiFi() {
     Serial.println("Wi-Fi disconnected; HC-12 and physical controls remain active.");
   }
 
-  const uint32_t nowMs = millis();
-  if (nowMs - lastWifiAttemptAtMs >= WIFI_RETRY_INTERVAL_MS) {
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    lastWifiAttemptAtMs = nowMs;
-    Serial.println("Retrying Wi-Fi connection...");
-  }
+  // The ESP32 Wi-Fi stack performs reconnects itself. Calling WiFi.begin()
+  // again while an attempt is active produces "sta is connecting" errors and
+  // repeatedly reconfigures the radio.
 }
 
 void sendRingingStatus() {
