@@ -14,6 +14,8 @@ bedroom.
 - A second kitchen-button press sends `STOP` and stops the bedroom buzzer.
 - Pressing the bedroom button also stops the buzzer and sends `STOP` back to the
   kitchen unit.
+- If no stop command or bedroom-button acknowledgement arrives, the bedroom
+  unit stops ringing after 2.5 minutes and sends `STOP` to the kitchen unit.
 - Both blue LEDs indicate the active ring state and turn off when either unit
   stops the ring.
 - The bedroom unit exposes a local Wi-Fi API for ringing, stopping, and reading
@@ -96,9 +98,11 @@ curl -X POST http://192.168.50.50/api/stop
 
 Each successful response contains the current state and the source of its last
 change, for example `{"ringing":false,"source":"bedroom_button"}`. Source is
-one of `startup`, `api`, `bedroom_button`, or `hc12`. Clients can poll
-`/api/status` about every 500 ms to notice kitchen, bedroom-button, and
-web-request state changes.
+one of `startup`, `api`, `bedroom_button`, `hc12`, or `timeout`. A timeout is
+reported as `{"ringing":false,"source":"timeout"}`, which lets clients
+distinguish it from a physical bedroom-button acknowledgement. Clients can
+poll `/api/status` about every 500 ms to notice kitchen, bedroom-button,
+timeout, and web-request state changes.
 
 The bedroom unit disables ESP32 Wi-Fi power saving to favor consistent local
 HTTP response times over the modest additional power use.

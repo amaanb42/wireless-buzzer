@@ -40,6 +40,7 @@ constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
 constexpr uint32_t BEEP_DURATION_MS = 250;
 constexpr uint32_t BEEP_START_INTERVAL_MS = 1000;
 constexpr uint32_t PATTERN_REPEAT_PAUSE_MS = 3000;
+constexpr uint32_t RING_TIMEOUT_MS = 150000;
 
 HardwareSerial HC12(2);
 WebServer webServer(80);
@@ -52,6 +53,7 @@ bool acknowledgementArmed = false;
 bool buzzerToneActive = false;
 uint8_t completedBeeps = 0;
 uint32_t buzzerTransitionAtMs = 0;
+uint32_t ringStartedAtMs = 0;
 bool webServerRunning = false;
 
 enum class ChangeSource : uint8_t {
@@ -59,6 +61,7 @@ enum class ChangeSource : uint8_t {
   API,
   BEDROOM_BUTTON,
   HC12,
+  TIMEOUT,
 };
 
 ChangeSource lastChangeSource = ChangeSource::STARTUP;
@@ -67,6 +70,7 @@ bool buttonWasPressed();
 void receiveMessages();
 void setBuzzerTone(bool active);
 void updateBuzzerPattern();
+void updateRingTimeout();
 void configureWebServer();
 void updateWiFi();
 void sendRingingStatus();
@@ -119,6 +123,7 @@ void loop() {
   }
 
   receiveMessages();
+  updateRingTimeout();
 
   if (ringing) {
     updateBuzzerPattern();
@@ -188,6 +193,7 @@ void setRinging(bool active, ChangeSource source) {
   digitalWrite(BLUE_LED_PIN, active ? HIGH : LOW);
 
   if (active) {
+    ringStartedAtMs = millis();
     // Start the first of three beeps immediately.
     buzzerToneActive = true;
     setBuzzerTone(true);
@@ -262,6 +268,8 @@ const char* changeSourceName(ChangeSource source) {
       return "bedroom_button";
     case ChangeSource::HC12:
       return "hc12";
+    case ChangeSource::TIMEOUT:
+      return "timeout";
     case ChangeSource::STARTUP:
     default:
       return "startup";
@@ -288,6 +296,16 @@ void updateBuzzerPattern() {
     setBuzzerTone(true);
     buzzerTransitionAtMs = nowMs + BEEP_DURATION_MS;
   }
+}
+
+void updateRingTimeout() {
+  if (!ringing || millis() - ringStartedAtMs < RING_TIMEOUT_MS) {
+    return;
+  }
+
+  setRinging(false, ChangeSource::TIMEOUT);
+  acknowledgementArmed = false;
+  HC12.println("STOP");
 }
 
 void setBuzzerTone(bool active) {
