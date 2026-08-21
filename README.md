@@ -71,8 +71,9 @@ Edit `bedroom_hc12/wifi_secrets.h` and replace `YOUR_WIFI_SSID` and
 reconnection are non-blocking, so HC-12 and physical-button control continue to
 work if Wi-Fi is unavailable.
 
-After connecting, the bedroom unit prints its IP address to the serial monitor
-and advertises the mDNS hostname `bedroom-buzzer.local`.
+Reserve the bedroom ESP32's Wi-Fi MAC address in the router so the API keeps a
+stable IP. This installation uses `192.168.50.50`. The production sketch does
+not emit serial diagnostics or advertise an mDNS hostname.
 
 ## HTTP API
 
@@ -88,9 +89,9 @@ without authentication to devices on the same trusted Wi-Fi network.
 Example requests:
 
 ```bash
-curl http://bedroom-buzzer.local/api/status
-curl -X POST http://bedroom-buzzer.local/api/ring
-curl -X POST http://bedroom-buzzer.local/api/stop
+curl http://192.168.50.50/api/status
+curl -X POST http://192.168.50.50/api/ring
+curl -X POST http://192.168.50.50/api/stop
 ```
 
 Each successful response is either `{"ringing":true}` or

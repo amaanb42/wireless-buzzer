@@ -18,7 +18,6 @@
 //
 // Blue LED -> ESP32 GPIO2 (active HIGH)
 
-#include <ESPmDNS.h>
 #include <WebServer.h>
 #include <WiFi.h>
 
@@ -32,11 +31,15 @@ constexpr uint8_t BLUE_LED_PIN = 2;
 // A lower, wider pulse is noticeably louder without the sharp 800 Hz tone.
 constexpr uint16_t TONE_FREQUENCY_HZ = 350;
 constexpr uint8_t BUZZER_DUTY_PERCENT = 8;
+constexpr uint8_t BUZZER_PWM_RESOLUTION_BITS = 10;
+constexpr uint16_t BUZZER_PWM_FULL_SCALE =
+    1U << BUZZER_PWM_RESOLUTION_BITS;
+constexpr uint16_t BUZZER_PWM_ON_DUTY =
+    (BUZZER_PWM_FULL_SCALE * (100U - BUZZER_DUTY_PERCENT)) / 100U;
 constexpr uint32_t BUTTON_DEBOUNCE_MS = 30;
 constexpr uint32_t BEEP_DURATION_MS = 250;
 constexpr uint32_t BEEP_START_INTERVAL_MS = 1000;
 constexpr uint32_t PATTERN_REPEAT_PAUSE_MS = 3000;
-constexpr char MDNS_HOSTNAME[] = "bedroom-buzzer";
 
 HardwareSerial HC12(2);
 WebServer webServer(80);
@@ -50,11 +53,10 @@ bool buzzerToneActive = false;
 uint8_t completedBeeps = 0;
 uint32_t buzzerTransitionAtMs = 0;
 bool webServerRunning = false;
-bool mdnsRunning = false;
 
 bool buttonWasPressed();
 void receiveMessages();
-void playQuietToneCycle(uint16_t frequencyHz, uint8_t dutyPercent);
+void setBuzzerTone(bool active);
 void updateBuzzerPattern();
 void configureWebServer();
 void updateWiFi();
@@ -62,13 +64,15 @@ void sendRingingStatus();
 void setRinging(bool active);
 
 void setup() {
-  Serial.begin(115200);
   HC12.begin(9600, SERIAL_8N1, HC12_RX, HC12_TX);
 
   // This module is low-triggered. Set the output latch before enabling the
   // output to avoid an unwanted chirp during startup.
   digitalWrite(BUZZER_PIN, HIGH);
   pinMode(BUZZER_PIN, OUTPUT);
+  ledcAttach(BUZZER_PIN, TONE_FREQUENCY_HZ,
+             BUZZER_PWM_RESOLUTION_BITS);
+  setBuzzerTone(false);
 
   digitalWrite(BLUE_LED_PIN, LOW);
   pinMode(BLUE_LED_PIN, OUTPUT);
@@ -82,10 +86,6 @@ void setup() {
   WiFi.mode(WIFI_STA);
   WiFi.setAutoReconnect(true);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  delay(500);
-  Serial.println("Bedroom receiver ready; waiting for RING.");
-  Serial.println("Connecting to Wi-Fi without blocking physical controls...");
 }
 
 void loop() {
@@ -104,7 +104,6 @@ void loop() {
       setRinging(false);
       acknowledgementArmed = false;
       HC12.println("STOP");
-      Serial.println("Ring acknowledged.");
     }
   }
 
@@ -148,17 +147,12 @@ void receiveMessages() {
           setRinging(true);
           acknowledgementArmed =
               buttonRawState == HIGH && buttonStableState == HIGH;
-          Serial.println("Received: RING; sounding until acknowledged.");
         }
       } else if (strcmp(message, "STOP") == 0) {
         if (ringing) {
           setRinging(false);
           acknowledgementArmed = false;
-          Serial.println("Received: STOP; ring stopped.");
         }
-      } else if (messageLength > 0) {
-        Serial.print("Ignored: ");
-        Serial.println(message);
       }
 
       messageLength = 0;
@@ -180,11 +174,12 @@ void setRinging(bool active) {
   if (active) {
     // Start the first of three beeps immediately.
     buzzerToneActive = true;
+    setBuzzerTone(true);
     completedBeeps = 0;
     buzzerTransitionAtMs = millis() + BEEP_DURATION_MS;
   } else {
     buzzerToneActive = false;
-    digitalWrite(BUZZER_PIN, HIGH);
+    setBuzzerTone(false);
   }
 }
 
@@ -200,7 +195,6 @@ void configureWebServer() {
           buttonRawState == HIGH && buttonStableState == HIGH;
     }
     HC12.println("RING");
-    Serial.println("Web: RING; synchronized kitchen LED.");
     sendRingingStatus();
   });
 
@@ -208,7 +202,6 @@ void configureWebServer() {
     setRinging(false);
     acknowledgementArmed = false;
     HC12.println("STOP");
-    Serial.println("Web: STOP; synchronized kitchen LED.");
     sendRingingStatus();
   });
 
@@ -224,18 +217,6 @@ void updateWiFi() {
     if (!webServerRunning) {
       webServer.begin();
       webServerRunning = true;
-
-      mdnsRunning = MDNS.begin(MDNS_HOSTNAME);
-      if (mdnsRunning) {
-        MDNS.addService("http", "tcp", 80);
-      }
-
-      Serial.print("Web server ready at http://");
-      Serial.print(WiFi.localIP());
-      Serial.println("/api/status");
-      if (mdnsRunning) {
-        Serial.println("mDNS name: http://bedroom-buzzer.local/api/status");
-      }
     }
 
     webServer.handleClient();
@@ -245,16 +226,7 @@ void updateWiFi() {
   if (webServerRunning) {
     webServer.stop();
     webServerRunning = false;
-    if (mdnsRunning) {
-      MDNS.end();
-      mdnsRunning = false;
-    }
-    Serial.println("Wi-Fi disconnected; HC-12 and physical controls remain active.");
   }
-
-  // The ESP32 Wi-Fi stack performs reconnects itself. Calling WiFi.begin()
-  // again while an attempt is active produces "sta is connecting" errors and
-  // repeatedly reconfigures the radio.
 }
 
 void sendRingingStatus() {
@@ -267,12 +239,9 @@ void updateBuzzerPattern() {
   const uint32_t nowMs = millis();
 
   if (buzzerToneActive) {
-    // One short cycle per pass keeps radio and button handling responsive.
-    playQuietToneCycle(TONE_FREQUENCY_HZ, BUZZER_DUTY_PERCENT);
-
     if (static_cast<int32_t>(nowMs - buzzerTransitionAtMs) >= 0) {
       buzzerToneActive = false;
-      digitalWrite(BUZZER_PIN, HIGH);
+      setBuzzerTone(false);
       ++completedBeeps;
       buzzerTransitionAtMs = nowMs +
           (completedBeeps == 3 ? PATTERN_REPEAT_PAUSE_MS
@@ -283,19 +252,13 @@ void updateBuzzerPattern() {
       completedBeeps = 0;
     }
     buzzerToneActive = true;
+    setBuzzerTone(true);
     buzzerTransitionAtMs = nowMs + BEEP_DURATION_MS;
   }
 }
 
-void playQuietToneCycle(uint16_t frequencyHz, uint8_t dutyPercent) {
-  const uint32_t periodUs = 1000000UL / frequencyHz;
-  const uint32_t lowTimeUs = (periodUs * dutyPercent) / 100UL;
-  const uint32_t highTimeUs = periodUs - lowTimeUs;
-
-  // LOW activates this module. One short cycle is generated per pass through
-  // loop() so the radio and acknowledgement button remain responsive.
-  digitalWrite(BUZZER_PIN, LOW);
-  delayMicroseconds(lowTimeUs);
-  digitalWrite(BUZZER_PIN, HIGH);
-  delayMicroseconds(highTimeUs);
+void setBuzzerTone(bool active) {
+  // This buzzer is active LOW, so an 8% activation duty is 92% HIGH.
+  ledcWrite(BUZZER_PIN,
+            active ? BUZZER_PWM_ON_DUTY : BUZZER_PWM_FULL_SCALE);
 }
