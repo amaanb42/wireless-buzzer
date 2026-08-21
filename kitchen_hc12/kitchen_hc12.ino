@@ -69,7 +69,10 @@ void receiveMessages() {
     if (received == '\n') {
       message[messageLength] = '\0';
 
-      if (strcmp(message, "STOP") == 0) {
+      if (strcmp(message, "RING") == 0) {
+        setRingActive(true);
+        Serial.println("Received: RING");
+      } else if (strcmp(message, "STOP") == 0) {
         setRingActive(false);
         Serial.println("Received: STOP");
       } else if (messageLength > 0) {

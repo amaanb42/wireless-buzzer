@@ -7,6 +7,9 @@ build/
 *.hex
 *.map
 
+# Local Wi-Fi credentials for the bedroom unit
+bedroom_hc12/wifi_secrets.h
+
 # Local editor and operating-system files
 .vscode/
 .idea/
